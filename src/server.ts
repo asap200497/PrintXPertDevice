@@ -1,11 +1,37 @@
 import axios from "axios";
 import fs from "fs";
+import path from "path";
+
+function getMacAddress(): string  {
+    try {
+        const netPath = "/sys/class/net";
+        const interfaces = fs.readdirSync(netPath);
+
+        for (const iface of interfaces) {
+            if (iface === "lo") continue; // skip loopback
+            const addressPath = path.join(netPath, iface, "address");
+            if (fs.existsSync(addressPath)) {
+                const mac = fs.readFileSync(addressPath, "utf8").trim();
+                if (mac && mac !== "00:00:00:00:00:00") {
+                    return mac;
+                }
+            }
+        }
+        return "";
+    } catch (err) {
+        console.error("Error reading MAC address:", err);
+        return "";
+    }
+}
 
 function getRaspberryPiSerial(): string | null {
     try {
         const cpuInfo = fs.readFileSync("/proc/cpuinfo", "utf8");
         const match = cpuInfo.match(/Serial\s*:\s*([0-9a-fA-F]+)/);
-        return match?.[1] ?? null; // ? null if undefined
+        const mac = getMacAddress();
+        const idx =  mac + (match?.[1] ?? "");
+        return idx;
+        //return match?.[1] ?? null; // ? null if undefined
     } catch (err) {
         console.error("Error reading CPU serial:", err);
         return null;
