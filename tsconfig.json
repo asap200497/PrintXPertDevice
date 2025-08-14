@@ -2,13 +2,13 @@
   // Visit https://aka.ms/tsconfig to read more about this file
   "compilerOptions": {
     // File Layout
-     "rootDir": "./src",
+    // "rootDir": "./src",
      "outDir": "./dist",
 
     // Environment Settings
     // See also https://aka.ms/tsconfig/module
     "module": "commonjs",
-    "target": "esnext",
+    "target": "ES2020",
      "types": ["node","express"],   
     // For nodejs:
     // "lib": ["esnext"],
@@ -23,6 +23,7 @@
     // Stricter Typechecking Options
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
+    "allowSyntheticDefaultImports": true,
 
     // Style Options
     // "noImplicitReturns": true,
@@ -41,5 +42,6 @@
     "moduleDetection": "force",
     "skipLibCheck": true,
     "esModuleInterop": true,  
-  }
+  },
+  "include": ["src"]
 }
