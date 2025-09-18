@@ -92,34 +92,47 @@ export async function downloadPdfToFile(prod: string) {
   return outPath;
 }
 
-
-
 interface IProduto {
-  preco: string;
-  quantidade: number;
-  produtos: {
     id: string;
     banner: string;
     originalbanner: string;
-  };
+    banner2: string;
+    originalbanner2: string;
+    sides: boolean;
+    color: string;    
+    weight: string;
+    finishing: string;
+    sides2: boolean;
+    color2: string;
+    weight2: string;
+    finishing2: string;
+
+  }
+
+interface IProdutos {
+  preco: string;
+  quantidade: number;
+  produtos: IProduto[];
 }
-interface Iordem {
+
+interface IOrdemServico {
     id: string;
-    numero: number;
-    total: number;
-    produtos: IProduto[];
+    os_id: string;
+    produto_id: string,
 }
 
 // Function that calls the webservice
 async function pollService() {
     try {
 
-        const response = await api.get<Iordem>("/nextorder/" + serial);
+        const response = await api.get<IOrdemServico>("/nextorder/" + serial);
         const order = response.data;
         if (response.data != null) {
+                console.log("Order",order);
             
-            for ( const prod of order.produtos ) {
-                const pathOnDisk = await downloadPdfToFile(prod.produtos.id);
+                await api.put("/deviceaction/" + order.id + "?action=downloadstart");
+                console.log("Downloading");
+                const pathOnDisk = await downloadPdfToFile(order.produto_id);
                 const jobid = await printPdf(pathOnDisk,"HP_DeskJet_5200_series_CEB583");
                 console.log("job " + jobid + " arquivo " + pathOnDisk);
                 fs.rm(pathOnDisk, (err) => {
@@ -129,10 +142,17 @@ async function pollService() {
                         console.log("File deleted successfully");
                     }
                 });
-             }            
+                console.log("sadsadasd");
+                try {
+                const depois = await api.put("/deviceaction/" + order.id + "?action=downloadend");   
+                console.log("Notified server ",depois.data);   
+                } catch(err) {
+                    console.error("Failed to notify server of completion:", err);
+                }   
+
 
         }
-        else    console.log("vazio");
+
                    
 ;
 
@@ -145,7 +165,7 @@ async function pollService() {
 pollService();
 
 // Repeat every 10 minutes (600_000 ms)
-setInterval(pollService,  150 * 1000);
+setInterval(pollService,  5 * 1000);
 
 
 
