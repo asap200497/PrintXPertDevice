@@ -10,6 +10,10 @@ import { v4 as uuidv4 } from "uuid";
 const execFileAsync = promisify(execFile);
 
 
+export function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export async function printPdf(pdfPath: string, printer: string, options: string[] = []) {
   // Example options: ["sides=two-sided-long-edge", "media=A4", "fit-to-page"]
   const args = ["-d", printer, "-o", "media=A4", ...options, pdfPath];
@@ -133,8 +137,10 @@ async function pollService() {
                 await api.put("/deviceaction/" + order.id + "?action=downloadstart");
                 console.log("Downloading");
                 const pathOnDisk = await downloadPdfToFile(order.produto_id);
-                const jobid = await printPdf(pathOnDisk,"HP_DeskJet_5200_series_CEB583");
-                console.log("job " + jobid + " arquivo " + pathOnDisk);
+                await new Promise(res => setTimeout(res, 10_000));
+/*                 const jobid = await printPdf(pathOnDisk,"HP_DeskJet_5200_series_CEB583");
+                console.log("job " + jobid + " arquivo " + pathOnDisk); */
+                
                 fs.rm(pathOnDisk, (err) => {
                     if (err) {
                         console.error("Failed to delete file:", err);
@@ -165,7 +171,7 @@ async function pollService() {
 pollService();
 
 // Repeat every 10 minutes (600_000 ms)
-setInterval(pollService,  5 * 1000);
+setInterval(pollService,  15 * 1000);
 
 
 
