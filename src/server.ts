@@ -128,6 +128,7 @@ interface IOrdemServico {
 // Function that calls the webservice
 async function pollService() {
     try {
+        
 
         const response = await api.get<IOrdemServico>("/nextorder/" + serial);
         const order = response.data;
