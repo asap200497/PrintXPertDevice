@@ -139,9 +139,22 @@ async function pollService() {
             
                 await api.put("/deviceaction/" + order.id + "?action=downloadstart");
                 const pathOnDisk = await downloadPdfToFile(order.produto_id);
- //               await new Promise(res => setTimeout(res, 10_000));
+                try {
+                const depois = await api.put("/deviceaction/" + order.id + "?action=downloadend");   
+
+                } catch(err) {
+                    console.error("Failed to notify server of completion:", err);
+                }   
+
+               await new Promise(res => setTimeout(res, 10_000));
 /*                 const jobid = await printPdf(pathOnDisk,"HP_DeskJet_5200_series_CEB583");
                 console.log("job " + jobid + " arquivo " + pathOnDisk); */
+                try {
+                const depois = await api.put("/deviceaction/" + order.id + "?action=printend");   
+
+                } catch(err) {
+                    console.error("Failed to notify server of completion:", err);
+                }   
                 
                 fs.rm(pathOnDisk, (err) => {
                     if (err) {
@@ -150,12 +163,6 @@ async function pollService() {
                         console.log("File deleted successfully");
                     }
                 });
-                try {
-                const depois = await api.put("/deviceaction/" + order.id + "?action=downloadend");   
-
-                } catch(err) {
-                    console.error("Failed to notify server of completion:", err);
-                }   
 
 
         }
