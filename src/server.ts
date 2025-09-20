@@ -67,6 +67,7 @@ function getRaspberryPiSerial(): string | null {
 }
 
 const serial = getRaspberryPiSerial();
+console.log("Device serial:", serial);
 
 export async function downloadPdfToFile(prod: string) {
   const resp = await api.get("/devicedownload/" + prod, { responseType: "stream", timeout: 30_000});
@@ -128,7 +129,7 @@ interface IOrdemServico {
 // Function that calls the webservice
 async function pollService() {
     try {
-        
+
 
         const response = await api.get<IOrdemServico>("/nextorder/" + serial);
         const order = response.data;
