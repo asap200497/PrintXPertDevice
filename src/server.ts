@@ -147,6 +147,7 @@ async function pollService() {
                 }   
 
                await new Promise(res => setTimeout(res, 10_000));
+               
 /*                 const jobid = await printPdf(pathOnDisk,"HP_DeskJet_5200_series_CEB583");
                 console.log("job " + jobid + " arquivo " + pathOnDisk); */
                 try {
