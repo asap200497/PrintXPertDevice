@@ -132,6 +132,7 @@ async function pollService() {
 
 
         const response = await api.get<IOrdemServico>("/nextorder/" + serial);
+        console.log("Response data:", response.data);
         const order = response.data;
         if (response.data != null) {
                 console.log("Order",order);
