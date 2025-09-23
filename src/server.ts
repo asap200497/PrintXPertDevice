@@ -97,6 +97,49 @@ export async function downloadPdfToFile(prod: string) {
   return outPath;
 }
 
+
+function toBufferLoose(input: any): Buffer {
+  if (!input) throw new TypeError("empty binary payload");
+
+  // Already a Buffer?
+  if (Buffer.isBuffer(input)) return input;
+
+  // Uint8Array / ArrayBuffer
+  if (input instanceof Uint8Array) return Buffer.from(input);
+  if (input instanceof ArrayBuffer) return Buffer.from(new Uint8Array(input));
+
+  // Base64 string (optionally with data: prefix)
+  if (typeof input === "string") {
+    const base64 = input.startsWith("data:")
+      ? input.substring(input.indexOf(",") + 1)
+      : input;
+    return Buffer.from(base64, "base64");
+  }
+
+  // Node Buffer JSON shape: { type: "Buffer", data: number[] }
+  if (typeof input === "object" && input.type === "Buffer" && Array.isArray(input.data)) {
+    return Buffer.from(input.data);
+  }
+
+  // Plain number[]
+  if (Array.isArray(input)) return Buffer.from(input);
+
+  // Object with numeric keys: { "0": 37, "1": 80, ... }
+  if (typeof input === "object") {
+    const keys = Object.keys(input);
+    const allNumeric = keys.every(k => /^\d+$/.test(k));
+    if (allNumeric) {
+      const arr = keys.sort((a, b) => Number(a) - Number(b)).map(k => input[k]);
+      return Buffer.from(Uint8Array.from(arr));
+    }
+  }
+
+  throw new TypeError(
+    "Unsupported binary shape; expected Buffer/Uint8Array/ArrayBuffer/number[]/" +
+    '{type:"Buffer",data:number[]} or base64 string'
+  );
+}
+
 interface IProduto {
     id: string;
     banner: string;
@@ -126,21 +169,46 @@ interface IOrdemServico {
     produto_id: string,
 }
 
+interface IComando {
+    cmd: String;
+    filename: String;
+    mimeType: String;
+    data: Uint8Array | number[];
+    lock: boolean;
+    created_at: Date;
+}
+
+interface ICmd {
+    order: IOrdemServico;
+    cmd:    IComando;
+
+}
+
 // Function that calls the webservice
 async function pollService() {
     try {
 
 
-        const response = await api.get<IOrdemServico>("/nextorder/" + serial);
-        console.log("Response data:", response.data);
-        const order = response.data;
-        if (response.data != null) {
-                console.log("Order",order);
+        const response = await api.get<ICmd>("/nextorder/" + serial);
+        const cmd = response.data;
+        if (response.data.cmd != null ){
+            console.log("comando")
+            await fs.promises.mkdir("/tmp/pdfdownload", { recursive: true });
+            const outPath = path.join("/tmp/pdfdownload", uuidv4()+ "-" + cmd.cmd.filename);
+            console.log("comando2")
+            const buffer = toBufferLoose(cmd.cmd.data);
+            console.log("comando3")
+            await fs.promises.writeFile(outPath, buffer);
+            const jobid = await printPdf(outPath,"HP_DeskJet_5200_series_CEB583");
+            fs.promises.unlink(outPath);
+        }
+        if (response.data.order != null) {
+                console.log("Order",cmd.order);
             
-                await api.put("/deviceaction/" + order.id + "?action=downloadstart");
-                const pathOnDisk = await downloadPdfToFile(order.produto_id);
+                await api.put("/deviceaction/" + cmd.order.id + "?action=downloadstart");
+                const pathOnDisk = await downloadPdfToFile(cmd.order.produto_id);
                 try {
-                const depois = await api.put("/deviceaction/" + order.id + "?action=downloadend");   
+                const depois = await api.put("/deviceaction/" + cmd.order.id + "?action=downloadend");   
 
                 } catch(err) {
                     console.error("Failed to notify server of completion:", err);
@@ -151,7 +219,7 @@ async function pollService() {
 /*                 const jobid = await printPdf(pathOnDisk,"HP_DeskJet_5200_series_CEB583");
                 console.log("job " + jobid + " arquivo " + pathOnDisk); */
                 try {
-                const depois = await api.put("/deviceaction/" + order.id + "?action=printend");   
+                const depois = await api.put("/deviceaction/" + cmd.order.id + "?action=printend");   
 
                 } catch(err) {
                     console.error("Failed to notify server of completion:", err);
