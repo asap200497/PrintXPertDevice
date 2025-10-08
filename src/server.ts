@@ -179,60 +179,117 @@ interface IComando {
 }
 
 interface ICmd {
-    order: IOrdemServico;
-    cmd:    IComando;
+    order?: IOrdemServico;
+    cmd?:    IComando;
 
 }
+
+import { exec } from "child_process";
+import util from "util";
+
+const execAsync = util.promisify(exec);
+
+interface PrinterOptions {
+  [key: string]: {
+    description: string;
+    default: string;
+    choices: string[];
+  };
+}
+
+/**
+ * Get available printer options from lpoptions -l
+ * @param printerName The name of the printer (use -p NAME)
+ */
+async function getPrinterOptions(printerName: string): Promise<PrinterOptions> {
+  const { stdout } = await execAsync(`lpoptions -p ${printerName} -l`);
+  const lines = stdout.trim().split("\n");
+  const options: PrinterOptions = {};
+
+  for (const line of lines) {
+    // Example line:
+    // Duplex/Duplex: *None DuplexNoTumble DuplexTumble
+    const match = line.match(/^([^\/]+)\/([^:]+):\s+(.+)$/);
+    if (!match) continue;
+
+
+    const key = (match[1] || "").trim();
+    const description = (match[2] || "").trim();
+    const values = (match[3] || "")
+      .split(/\s+/)
+      .map((v) => v.trim())
+      .filter(Boolean);
+
+    // Default is prefixed with '*'
+    const defaultValue = values.find((v) => v.startsWith("*"))?.replace("*", "") ?? "";
+    const choices = values.map((v) => v.replace("*", ""));
+
+    options[key] = {
+      description,
+      default: defaultValue,
+      choices,
+    };
+  }
+
+  return options;
+}
+
+
+
+
+
 
 // Function that calls the webservice
 async function pollService() {
     try {
 
-
-        const response = await api.get<ICmd>("/nextorder/" + serial);
+        const response = await api.get("/nextorder/" + serial);
         const cmd = response.data;
         if (response.data.cmd != null ){
-            console.log("comando")
             await fs.promises.mkdir("/tmp/pdfdownload", { recursive: true });
             const outPath = path.join("/tmp/pdfdownload", uuidv4()+ "-" + cmd.cmd.filename);
-            console.log("comando2")
             const buffer = toBufferLoose(cmd.cmd.data);
-            console.log("comando3")
             await fs.promises.writeFile(outPath, buffer);
-            const jobid = await printPdf(outPath,"HP_DeskJet_5200_series_CEB583");
+            const jobid = await printPdf(outPath,"PDF");
             fs.promises.unlink(outPath);
         }
         if (response.data.order != null) {
                 console.log("Order",cmd.order);
             
                 await api.put("/deviceaction/" + cmd.order.id + "?action=downloadstart");
-                const pathOnDisk = await downloadPdfToFile(cmd.order.produto_id);
                 try {
-                const depois = await api.put("/deviceaction/" + cmd.order.id + "?action=downloadend");   
+                  const pathOnDisk = await downloadPdfToFile(cmd.order.produto_id);
+                  try {
+                  const depois = await api.put("/deviceaction/" + cmd.order.id + "?action=downloadend");   
 
-                } catch(err) {
-                    console.error("Failed to notify server of completion:", err);
-                }   
+                  } catch(err) {
+                      console.error("Failed to notify server of completion:", err);
+                  }   
 
-               await new Promise(res => setTimeout(res, 10_000));
                
-/*                 const jobid = await printPdf(pathOnDisk,"HP_DeskJet_5200_series_CEB583");
-                console.log("job " + jobid + " arquivo " + pathOnDisk); */
-                try {
-                const depois = await api.put("/deviceaction/" + cmd.order.id + "?action=printend");   
+                  const jobid = await printPdf(pathOnDisk,"PDF");
+                  console.log("job " + jobid + " arquivo " + pathOnDisk);
+                  try {
+                  const depois = await api.put("/deviceaction/" + cmd.order.id + "?action=printend");   
 
-                } catch(err) {
-                    console.error("Failed to notify server of completion:", err);
-                }   
-                
-                fs.rm(pathOnDisk, (err) => {
-                    if (err) {
-                        console.error("Failed to delete file:", err);
-                    } else {
-                        console.log("File deleted successfully");
-                    }
-                });
+                  } catch(err) {
+                      console.error("Failed to notify server of completion:", err);
+                  }   
+                  
+                  fs.rm(pathOnDisk, (err) => {
+                      if (err) {
+                          console.error("Failed to delete file:", err);
+                      } else {
+                          console.log("File deleted successfully");
+                      }
+                  });
 
+                  
+                }
+                catch (err) {
+                  const depois = await api.put("/deviceaction/" + cmd.order.id + "?action=downloaderror");   
+
+                }
 
         }
 
@@ -240,15 +297,18 @@ async function pollService() {
 ;
 
     } catch (error) {
-        console.error("Error calling webservice:", error);
+        console.error("Error calling webservice:");
     }
 }
 
 // Call immediately on startup
-pollService();
 
-// Repeat every 10 minutes (600_000 ms)
-setInterval(pollService,  15 * 1000);
+(async function loop() {
+  while (true) {
+    await pollService();
+    await new Promise(r => setTimeout(r, 15 * 1000));
+  }
+})();
 
 
 
