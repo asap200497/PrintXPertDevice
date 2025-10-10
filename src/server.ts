@@ -246,11 +246,12 @@ async function getPrinterOptions(printerName: string): Promise<PrinterOptions> {
 async function pollService() {
     try {
 
-        
+        let fezalgo = false;
         const response = await api.get("/nextorder/" + serial);
 
         const cmd = response.data;
         if (response.data.cmd != null ){
+          fezalgo = true;
             await fs.promises.mkdir("/tmp/pdfdownload", { recursive: true });
             const outPath = path.join("/tmp/pdfdownload", uuidv4()+ "-" + cmd.cmd.filename);
             const buffer = toBufferLoose(cmd.cmd.data);
@@ -260,6 +261,7 @@ async function pollService() {
         }
         if (response.data.order != null) {
                 console.log("Order",cmd.order);
+                fezalgo = true;
             
                 await api.put("/deviceaction/" + cmd.order.id + "?action=downloadstart");
                 try {
@@ -295,8 +297,14 @@ async function pollService() {
                   const depois = await api.put("/deviceaction/" + cmd.order.id + "?action=downloaderror");   
 
                 }
+           
 
+        } 
+        if (!fezalgo) {
+          console.log("wait")
+           await new Promise(r => setTimeout(r, 15 * 1000));
         }
+
 
                    
 ;
@@ -311,7 +319,6 @@ async function pollService() {
 (async function loop() {
   while (true) {
     await pollService();
-    await new Promise(r => setTimeout(r, 15 * 1000));
   }
 })();
 
