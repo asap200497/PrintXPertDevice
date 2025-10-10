@@ -4,9 +4,18 @@ import path from "path";
 import { api } from "./services/api";
 import { finished } from "stream/promises";
 import "dotenv/config"; 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { v4 as uuidv4 } from "uuid";
+import { basename, join } from "path";
+import { tmpdir } from "os";
+import { execFile } from "child_process";
+import { promisify } from "util";
+import { PDFDocument, rgb } from "pdf-lib";
+import QRCode from "qrcode";
+
+function mmToPt(mm: number) {
+  return (mm * 72) / 25.4;
+}
+
 const execFileAsync = promisify(execFile);
 
 
@@ -14,14 +23,96 @@ export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-export async function printPdf(pdfPath: string, printer: string, options: string[] = []) {
-  // Example options: ["sides=two-sided-long-edge", "media=A4", "fit-to-page"]
-  const args = ["-d", printer, "-o", "media=A4", ...options, pdfPath];
+// export async function printPdf(pdfPath: string, serial: string, printer: string, options: string[] = []) {
+//   // Example options: ["sides=two-sided-long-edge", "media=A4", "fit-to-page"]
+//   const args = ["-d", printer, "-o", "media=A4", ...options, pdfPath];
 
-  const { stdout } = await execFileAsync("lp", args);
-  // stdout looks like: "request id is KM-C751i-123 (1 file(s))\n"
-  const match = stdout.match(/request id is (.+?-\d+)/i);
-  return match?.[1] ?? stdout.trim();
+//   const { stdout } = await execFileAsync("lp", args);
+//   // stdout looks like: "request id is KM-C751i-123 (1 file(s))\n"
+//   const match = stdout.match(/request id is (.+?-\d+)/i);
+//   return match?.[1] ?? stdout.trim();
+// }
+
+
+const readFileAsync = promisify(fs.readFile);
+const writeFileAsync = promisify(fs.writeFile);
+const unlinkAsync = promisify(fs.unlink);
+
+export async function printPdf(
+  pdfPath: string,
+  serial: string,
+  printer: string,
+  options: string[] = [],
+  insetMm = 12,
+  qrSizeMm = 10
+) {
+
+  
+  // 1) Read original PDF
+  const input =  await (readFileAsync(pdfPath));
+  const pdfDoc = await PDFDocument.load(input);
+
+  // 2) Generate compact QR PNG buffer for the serial (white background)
+  const qrPng = await QRCode.toBuffer(serial, {
+    errorCorrectionLevel: "L", // smallest
+    margin: 0,                 // no quiet zone
+    scale: 2,                  // controls pixel density
+    color: {
+      dark: "#000000",
+      light: "#FFFFFF",        // ensure solid white background
+    },
+  });
+
+  // 3) Embed QR and draw it on the last page, bottom-right
+  const lastPage = pdfDoc.getPage(pdfDoc.getPageCount() - 1);
+  const { width: pageW, height: pageH } = lastPage.getSize();
+
+  const qrImage = await pdfDoc.embedPng(qrPng);
+  const qrSizePt = mmToPt(qrSizeMm);
+  const insetPt  = mmToPt(insetMm);
+
+  const x = Math.max(insetPt, pageW - qrSizePt - insetPt);
+  const y = Math.max(insetPt, insetPt)
+
+  if (serial != "" ) {
+      // Optional: draw a small white background behind the QR for safety
+       const pad = mmToPt(1.5); // ~1.5 mm padding around QR
+      lastPage.drawRectangle({
+        x: x - pad,
+        y: y - pad,
+        width: qrSizePt + pad * 2,
+        height: qrSizePt + pad * 2,
+        color: rgb(1, 1, 1),
+      });
+
+      lastPage.drawImage(qrImage, { x, y, width: qrSizePt, height: qrSizePt });
+
+
+  }
+  // 4) Save to temp file
+  const stampedBytes = await pdfDoc.save();
+  const tempPdf = join(tmpdir(), `stamped_${Date.now()}_${basename(pdfPath)}`);
+  await writeFileAsync(tempPdf, stampedBytes);
+
+  try {
+      const args = ["-d", printer, "-o", "media=A4", ...options, tempPdf];
+      const { stdout } = await execFileAsync("lp", args);
+  
+
+  // 6) Return job ID
+      const match = stdout.match(/request id is (.+?-\d+)/i);
+      return match?.[1] ?? stdout.trim();
+
+  } finally {
+    try {
+      await unlinkAsync(tempPdf);
+    } catch {
+      // Ignore errors (file might already be removed)
+    }
+
+  }
+
+
 }
 
 function getFilenameFromCD(disposition?: string): string | null {
@@ -157,6 +248,9 @@ interface IProduto {
     color2: string;
     weight2: string;
     finishing2: string;
+    seriais: {
+      serial: string;
+    }[]
 
   }
 
@@ -248,7 +342,7 @@ async function pollService() {
 
         let fezalgo = false;
         const response = await api.get("/nextorder/" + serial);
-
+ 
         const cmd = response.data;
         if (response.data.cmd != null ){
           fezalgo = true;
@@ -256,7 +350,7 @@ async function pollService() {
             const outPath = path.join("/tmp/pdfdownload", uuidv4()+ "-" + cmd.cmd.filename);
             const buffer = toBufferLoose(cmd.cmd.data);
             await fs.promises.writeFile(outPath, buffer);
-            const jobid = await printPdf(outPath,"PDF");
+            const jobid = await printPdf(outPath, "" , "PDF");
             fs.promises.unlink(outPath);
         }
         if (response.data.order != null) {
@@ -273,9 +367,13 @@ async function pollService() {
                       console.error("Failed to notify server of completion:", err);
                   }   
 
-               
-                  const jobid = await printPdf(pathOnDisk,"PDF");
-                  console.log("job " + jobid + " arquivo " + pathOnDisk);
+
+                  for (let i = 0 ; i < cmd.order.qtdadicional ; ++i) {
+                    const jobid = await printPdf(pathOnDisk, cmd?.order?.seriais[i]?.serial || "","PDF");
+                    console.log("job " + jobid + " arquivo " + pathOnDisk);
+
+                  }
+
                   try {
                   const depois = await api.put("/deviceaction/" + cmd.order.id + "?action=printend");   
 
@@ -301,7 +399,7 @@ async function pollService() {
 
         } 
         if (!fezalgo) {
-          console.log("wait")
+
            await new Promise(r => setTimeout(r, 15 * 1000));
         }
 
