@@ -69,8 +69,10 @@ function getRaspberryPiSerial(): string | null {
 const serial = getRaspberryPiSerial();
 console.log("Device serial:", serial);
 
-export async function downloadPdfToFile(prod: string) {
-  const resp = await api.get("/devicedownload/" + prod, { responseType: "stream", timeout: 30_000});
+export async function downloadPdfToFile(prod: string, capa: boolean) {
+  const url = "/devicedownload/" + prod + (capa ? "?capa=true" : "");
+  console.log(url)
+  const resp = await api.get(url, { responseType: "stream", timeout: 30_000});
   
   // Pick a filename from Content-Disposition or fallback
   const cd = resp.headers["content-disposition"] as string | undefined;
@@ -143,6 +145,7 @@ function toBufferLoose(input: any): Buffer {
 interface IProduto {
     id: string;
     banner: string;
+    capa: true;
     originalbanner: string;
     banner2: string;
     originalbanner2: string;
@@ -243,7 +246,9 @@ async function getPrinterOptions(printerName: string): Promise<PrinterOptions> {
 async function pollService() {
     try {
 
+        
         const response = await api.get("/nextorder/" + serial);
+
         const cmd = response.data;
         if (response.data.cmd != null ){
             await fs.promises.mkdir("/tmp/pdfdownload", { recursive: true });
@@ -258,7 +263,7 @@ async function pollService() {
             
                 await api.put("/deviceaction/" + cmd.order.id + "?action=downloadstart");
                 try {
-                  const pathOnDisk = await downloadPdfToFile(cmd.order.produto_id);
+                  const pathOnDisk = await downloadPdfToFile(cmd.order.produto_id, cmd.order.capa);
                   try {
                   const depois = await api.put("/deviceaction/" + cmd.order.id + "?action=downloadend");   
 
@@ -296,8 +301,8 @@ async function pollService() {
                    
 ;
 
-    } catch (error) {
-        console.error("Error calling webservice:");
+    } catch (error : any) {
+        console.error("Error calling webservice:", error.response.data);
     }
 }
 
