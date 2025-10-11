@@ -53,28 +53,30 @@ export async function printPdf(
   const pdfDoc = await PDFDocument.load(input);
 
   // 2) Generate compact QR PNG buffer for the serial (white background)
-  const qrPng = await QRCode.toBuffer(serial, {
-    errorCorrectionLevel: "L", // smallest
-    margin: 0,                 // no quiet zone
-    scale: 2,                  // controls pixel density
-    color: {
-      dark: "#000000",
-      light: "#FFFFFF",        // ensure solid white background
-    },
-  });
-
+  
+ 
   // 3) Embed QR and draw it on the last page, bottom-right
   const lastPage = pdfDoc.getPage(pdfDoc.getPageCount() - 1);
   const { width: pageW, height: pageH } = lastPage.getSize();
 
-  const qrImage = await pdfDoc.embedPng(qrPng);
-  const qrSizePt = mmToPt(qrSizeMm);
-  const insetPt  = mmToPt(insetMm);
-
-  const x = Math.max(insetPt, pageW - qrSizePt - insetPt);
-  const y = Math.max(insetPt, insetPt)
-
   if (serial != "" ) {
+        const qrPng = await QRCode.toBuffer(serial, {
+        errorCorrectionLevel: "L", // smallest
+        margin: 0,                 // no quiet zone
+        scale: 2,                  // controls pixel density
+        color: {
+          dark: "#000000",
+          light: "#FFFFFF",        // ensure solid white background
+        },
+  });
+
+      const qrImage = await pdfDoc.embedPng(qrPng);
+      const qrSizePt = mmToPt(qrSizeMm);
+      const insetPt  = mmToPt(insetMm);
+
+      const x = Math.max(insetPt, pageW - qrSizePt - insetPt);
+      const y = Math.max(insetPt, insetPt)
+  
       // Optional: draw a small white background behind the QR for safety
        const pad = mmToPt(1.5); // ~1.5 mm padding around QR
       lastPage.drawRectangle({
@@ -95,7 +97,8 @@ export async function printPdf(
   await writeFileAsync(tempPdf, stampedBytes);
 
   try {
-      const args = ["-d", printer, "-o", "media=A4", ...options, tempPdf];
+      const args = ["-d", printer, ...options, tempPdf];
+      console.log(args);
       const { stdout } = await execFileAsync("lp", args);
   
 
@@ -408,7 +411,8 @@ async function pollService() {
 ;
 
     } catch (error : any) {
-        console.error("Error calling webservice:", error.response.data);
+        console.error("Error calling webservice:", error);
+         throw error
     }
 }
 
@@ -416,7 +420,16 @@ async function pollService() {
 
 (async function loop() {
   while (true) {
-    await pollService();
+    try {
+          await pollService();
+
+    }
+    catch {
+      console.log("waiting")
+         await new Promise(r => setTimeout(r, 15 * 1000));
+         
+    };
+
   }
 })();
 
