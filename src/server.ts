@@ -195,16 +195,14 @@ function toBufferLoose(input: any): Buffer {
   );
 }
 
-// ----------------------------- printing -----------------------------
-export async function printPdf(
+
+export async function genTempPdfQr( 
   pdfPath: string,
   serial: string,
-  printer: string,
-  options: string[] = [],
   insetMm = 0,
   qrSizeMm = 10
+  
 ) {
-  // 1) Read original PDF
   const input = await readFileAsync(pdfPath);
   const pdfDoc = await PDFDocument.load(input);
 
@@ -250,7 +248,20 @@ export async function printPdf(
   const stampedBytes = await pdfDoc.save();
   const tempPdf = join(tmpdir(), `stamped_${Date.now()}_${basename(pdfPath)}`);
   await writeFileAsync(tempPdf, stampedBytes);
+  return tempPdf;
+} 
 
+// ----------------------------- printing -----------------------------
+export async function printPdf(
+  pdfPath: string,
+  serial: string,
+  printer: string,
+  options: string[] = [],
+  insetMm = 0,
+  qrSizeMm = 10
+) {
+  // 1) Read original PDF
+  const tempPdf = await genTempPdfQr(pdfPath,serial,insetMm,qrSizeMm);
   // 4) Print with lp
   try {
     const args = ["-d", printer, ...options, tempPdf];
@@ -368,7 +379,7 @@ export async function getPrinterOptions(printerName: string): Promise<PrinterOpt
 // ----------------------------- poll loop -----------------------------
 const deviceSerial = getRaspberryPiSerial();
 console.log("Device serial:", deviceSerial);
-
+console.log("Impressora:", process.env.IMPRESSORA);
 async function pollService() {
   try {
     let didSomething = false;
@@ -383,7 +394,7 @@ async function pollService() {
       const buffer = toBufferLoose(payload.cmd.data);
       await fs.promises.writeFile(outPath, buffer);
       try {
-        const jobid = await printPdf(outPath, "", "PDF");
+        const jobid = await printPdf(outPath, "", process.env.IMPRESSORA || "");
         console.log("job", jobid, "file", outPath);
       } finally {
         await fs.promises.unlink(outPath).catch(() => {});
@@ -406,7 +417,7 @@ async function pollService() {
 
         for (let i = 0; i < copies; i++) {
           const serial = order.seriais?.[i]?.serial ?? "";
-          const jobid = await printPdf(pathOnDisk, serial, "PDF");
+          const jobid = await printPdf(pathOnDisk, serial, process.env.IMPRESSORA || "");
           console.log("job", jobid, "file", pathOnDisk, "serial", serial);
         }
 
