@@ -29,6 +29,46 @@ function mmToPt(mm: number) {
   return (mm * 72) / 25.4;
 }
 
+
+function getRaspberryPiSerial(): string | null {
+  try {
+    const cpuInfo = fs.readFileSync("/proc/cpuinfo", "utf8");
+    const match = cpuInfo.match(/Serial\s*:\s*([0-9a-fA-F]+)/);
+    const mac = getMacAddress();
+    return mac + (match?.[1] ?? "");
+  } catch (err) {
+    console.error("Error reading CPU serial:", err);
+    return null;
+  }
+}
+
+
+let jwt = "";
+let jwtexpiration = new Date();
+
+
+
+async function login() {
+  const now = new Date();
+
+  if (jwt && now < jwtexpiration) {
+      return jwt ;
+
+  }
+
+  const response = await api.post("/session", { login: getRaspberryPiSerial(), password: process.env.API_PASSWORD } )
+  if (response?.data?.token) {
+    jwt = response.data.token;
+    jwtexpiration = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    return jwt;
+  }
+  else {
+    jwt = "";
+    throw "Erro login"
+  }
+}
+
+
 function readBox(
   pdfDoc: PDFDocument,
   page: any,
@@ -155,18 +195,6 @@ function getMacAddress(): string {
   }
 }
 
-function getRaspberryPiSerial(): string | null {
-  try {
-    const cpuInfo = fs.readFileSync("/proc/cpuinfo", "utf8");
-    const match = cpuInfo.match(/Serial\s*:\s*([0-9a-fA-F]+)/);
-    const mac = getMacAddress();
-    return mac + (match?.[1] ?? "");
-  } catch (err) {
-    console.error("Error reading CPU serial:", err);
-    return null;
-  }
-}
-
 function toBufferLoose(input: any): Buffer {
   if (!input) throw new TypeError("empty binary payload");
   if (Buffer.isBuffer(input)) return input;
@@ -280,7 +308,10 @@ export async function printPdf(
 // ----------------------------- download -----------------------------
 export async function downloadPdfToFile(prod: string, capa: boolean) {
   const url = "/devicedownload/" + prod + (capa ? "?capa=true" : "");
-  const resp = await api.get(url, { responseType: "stream", timeout: 30_000 });
+  const resp = await api.get(url, {
+        headers: {
+          Authorization: `Bearer ${await login()}`,
+        }, responseType: "stream", timeout: 30_000 });
 
   const cd = resp.headers["content-disposition"] as string | undefined;
   const filename = getFilenameFromCD(cd) ?? `file-${Date.now()}.pdf`;
@@ -383,7 +414,7 @@ console.log("Impressora:", process.env.IMPRESSORA);
 async function pollService() {
   try {
     let didSomething = false;
-    const response = await api.get("/nextorder/" + deviceSerial);
+    const response = await api.get("/nextorder/" + deviceSerial, {headers: { Authorization: `Bearer ${await login()}`}});
     const payload: ICmdPayload = response.data;
 
     // raw command with pdf payload
@@ -407,7 +438,7 @@ async function pollService() {
       const order = payload.order;
 
 
-      await api.put(`/deviceaction/${order.id}?action=downloadstart`).catch(() => {});
+      await api.put(`/deviceaction/${order.id}?action=downloadstart`, { data: {} }, {headers: { Authorization: `Bearer ${await login()}`}}).catch(() => {}, );
       try {
         const pathOnDisk = await downloadPdfToFile(order.produto_id, !!order.capa);
 
@@ -421,12 +452,12 @@ async function pollService() {
           console.log("job", jobid, "file", pathOnDisk, "serial", serial);
         }
 
-        await api.put(`/deviceaction/${order.id}?action=downloadend`).catch(() => {});
-        await api.put(`/deviceaction/${order.id}?action=printend`).catch(() => {});
+        await api.put(`/deviceaction/${order.id}?action=downloadend`,{ data: {} }, {headers: { Authorization: `Bearer ${await login()}`}}).catch(() => {});
+        await api.put(`/deviceaction/${order.id}?action=printend`, { data: {} }, {headers: { Authorization: `Bearer ${await login()}`}}).catch(() => {});
         await fs.promises.unlink(pathOnDisk).catch(() => {});
       } catch (err) {
         console.error("download/print error:", err);
-        await api.put(`/deviceaction/${order.id}?action=downloaderror`).catch(() => {});
+        await api.put(`/deviceaction/${order.id}?action=downloaderror`,{ data: {} }, {headers: { Authorization: `Bearer ${await login()}`}}).catch(() => {});
       }
     }
 
