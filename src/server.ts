@@ -7,6 +7,8 @@ import { execFile, exec } from "child_process";
 import util, { promisify } from "util";
 import { finished } from "stream/promises";
 import { api } from "./services/api";
+import ipp from "ipp";
+
 import {
   PDFDocument,
   rgb,
@@ -368,6 +370,7 @@ interface IOrdemServico {
 }
 interface IComando {
   cmd: string;
+  franqueado_id: string;
   filename: string;
   mimeType: string;
   data: Uint8Array | number[];
@@ -387,6 +390,13 @@ interface PrinterOptions {
     choices: string[];
   };
 }
+
+interface Printer {
+  name: string;
+  options: PrinterOptions;
+};
+
+
 export async function getPrinterOptions(printerName: string): Promise<PrinterOptions> {
   const { stdout } = await execAsync(`lpoptions -p ${printerName} -l`);
   const lines = stdout.trim().split("\n");
@@ -407,28 +417,65 @@ export async function getPrinterOptions(printerName: string): Promise<PrinterOpt
   return options;
 }
 
+type PrinterAttrs = {
+  "printer-name": string;
+  "printer-state"?: number;              // 3=idle, 4=processing, 5=stopped
+  "printer-uri-supported"?: string[];    // IPP/HTTP URIs
+};
+
+
 // ----------------------------- poll loop -----------------------------
 const deviceSerial = getRaspberryPiSerial();
 console.log("Device serial:", deviceSerial);
 console.log("Impressora:", process.env.IMPRESSORA);
 async function pollService() {
   try {
+
+
     let didSomething = false;
     const response = await api.get("/nextorder/" + deviceSerial, {headers: { Authorization: `Bearer ${await login()}`}});
     const payload: ICmdPayload = response.data;
 
     // raw command with pdf payload
     if (payload?.cmd) {
-      didSomething = true;
-      await fs.promises.mkdir("/tmp/pdfdownload", { recursive: true });
-      const outPath = path.join("/tmp/pdfdownload", uuidv4() + "-" + payload.cmd.filename);
-      const buffer = toBufferLoose(payload.cmd.data);
-      await fs.promises.writeFile(outPath, buffer);
-      try {
-        const jobid = await printPdf(outPath, "", process.env.IMPRESSORA || "");
-        console.log("job", jobid, "file", outPath);
-      } finally {
-        await fs.promises.unlink(outPath).catch(() => {});
+      if (payload.cmd.cmd == "Print") {
+        didSomething = true;
+        await fs.promises.mkdir("/tmp/pdfdownload", { recursive: true });
+        const outPath = path.join("/tmp/pdfdownload", uuidv4() + "-" + payload.cmd.filename);
+        const buffer = toBufferLoose(payload.cmd.data);
+        await fs.promises.writeFile(outPath, buffer);
+        try {
+          const jobid = await printPdf(outPath, "", process.env.IMPRESSORA || "");
+          console.log("job", jobid, "file", outPath);
+        } finally {
+          await fs.promises.unlink(outPath).catch(() => {});
+        }
+      }
+      if (payload.cmd.cmd == "ListPrinter") {
+        console.log("Listing printers");
+        try {
+            let printers: Printer[] = [];
+            const { stdout } = await execAsync("lpstat -v");
+            const lines = stdout.trim().split("\n");
+  
+            for (const line of lines) {
+                const name = line.split("device for ")[1]?.split(":")[0] || "";
+                if (name) {
+                  const options = await getPrinterOptions(name);
+                  printers.push({name: name, options: options});
+                }
+            }
+
+            if (payload.cmd.franqueado_id) {
+              await api.post(`/updateprinters/${payload.cmd.franqueado_id}`, {
+                  printers 
+              }, {headers: { Authorization: `Bearer ${await login()}`}}).catch(() => {});
+            }
+
+        }
+        catch(err ) {
+           console.error("Error listing printers:", err);
+        }
       }
     }
 
