@@ -367,6 +367,7 @@ interface IOrdemServico {
   capa?: boolean;
   seriais?: { serial: string }[];
   qtdadicional?: number;
+  options?: string[];
 }
 interface IComando {
   cmd: string;
@@ -495,7 +496,7 @@ async function pollService() {
 
         for (let i = 0; i < copies; i++) {
           const serial = order.seriais?.[i]?.serial ?? "";
-          const jobid = await printPdf(pathOnDisk, serial, process.env.IMPRESSORA || "");
+          const jobid = await printPdf(pathOnDisk, serial, process.env.IMPRESSORA || "", order.options || []);
           console.log("job", jobid, "file", pathOnDisk, "serial", serial);
         }
 
