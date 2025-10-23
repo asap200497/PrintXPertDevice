@@ -295,6 +295,7 @@ export async function printPdf(
   // 4) Print with lp
   try {
     const args = ["-d", printer, ...options, tempPdf];
+    console.log(args)
     const { stdout } = await execFileAsync("lp", args);
     const match = stdout.match(/request id is (.+?-\d+)/i);
     return match?.[1] ?? stdout.trim();
@@ -376,11 +377,8 @@ interface IComando {
   mimeType: string;
   data: Uint8Array | number[];
   lock: boolean;
+  impressora?: string;
   created_at: Date;
-}
-interface ICmdPayload {
-  order?: IOrdemServico;
-  cmd?: IComando;
 }
 
 // ----------------------------- printer options (unchanged) -----------------------------
@@ -394,8 +392,15 @@ interface PrinterOptions {
 
 interface Printer {
   name: string;
-  options: PrinterOptions;
+  shotname?: string;
+  options?: PrinterOptions;
+  impressoravalues?: {value?: string}[]
 };
+interface ICmdPayload {
+  order?: IOrdemServico;
+  cmd?: IComando;
+  printer?: Printer;
+}
 
 
 export async function getPrinterOptions(printerName: string): Promise<PrinterOptions> {
@@ -493,10 +498,14 @@ async function pollService() {
         // how many prints? prefer qtdadicional; fallback to seriais length; else 1
         const copies =
           (order as any).qtdadicional ?? order.seriais?.length ?? 1;
-
+        const lpOptions: string[] = (payload.printer?.impressoravalues ?? [])
+          .map((x) => x?.value?.trim())
+          .filter((v): v is string => !!v && v.length > 0)
+          .flatMap((v) => ["-o", v]);
         for (let i = 0; i < copies; i++) {
           const serial = order.seriais?.[i]?.serial ?? "";
-          const jobid = await printPdf(pathOnDisk, serial, process.env.IMPRESSORA || "", order.options || []);
+          const jobid = await printPdf(pathOnDisk, serial, payload.printer?.name || process.env.IMPRESSORA || "",
+             lpOptions);
           console.log("job", jobid, "file", pathOnDisk, "serial", serial);
         }
 
