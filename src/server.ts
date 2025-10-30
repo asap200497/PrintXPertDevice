@@ -287,7 +287,7 @@ export async function printPdf(
   serial: string,
   printer: string,
   options: string[] = [],
-  insetMm = 0,
+  insetMm = 8,
   qrSizeMm = 10
 ) {
   // 1) Read original PDF
@@ -379,6 +379,7 @@ interface IComando {
   lock: boolean;
   impressora?: string;
   created_at: Date;
+  extradata?: string;
 }
 
 // ----------------------------- printer options (unchanged) -----------------------------
@@ -451,7 +452,7 @@ async function pollService() {
         const buffer = toBufferLoose(payload.cmd.data);
         await fs.promises.writeFile(outPath, buffer);
         try {
-          const jobid = await printPdf(outPath, "", process.env.IMPRESSORA || "");
+          const jobid = await printPdf(outPath, "", payload.cmd.extradata || process.env.IMPRESSORA || "");
           console.log("job", jobid, "file", outPath);
         } finally {
           await fs.promises.unlink(outPath).catch(() => {});
